@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Stream Extractor</title>
+  <style>
+    body { font-family: monospace; background: #111; color: #eee; padding: 20px; }
+    input { background: #222; color: #eee; border: 1px solid #444; padding: 8px; margin: 4px; border-radius: 4px; }
+    button { background: #e74c3c; color: #fff; border: none; padding: 9px 20px; border-radius: 4px; cursor: pointer; margin: 4px; }
+    button:hover { background: #c0392b; }
+    pre { background: #1a1a1a; border: 1px solid #333; padding: 14px; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+    .url  { color: #2ecc71; cursor: pointer; text-decoration: underline; }
+    .label{ color: #f39c12; }
+    .err  { color: #e74c3c; }
+  </style>
+</head>
+<body>
+  <h2>🎬 GogoAnime Stream Extractor</h2>
+
+  <input id="show" placeholder="Show ID (e.g. 108)" value="108" style="width:160px" />
+  <input id="ep"   placeholder="Episode (e.g. 235)"  value="235"  style="width:160px" />
+  <button onclick="extract()">Extract</button>
+  <pre id="out">Ready. Enter show ID and episode then click Extract.</pre>
+
+<script>
+// ── Two proxies — tries first, falls back to second automatically
+const PROXIES = [
+  url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+];
+
+const out = document.getElementById("out");
+function log(msg, cls = "") {
+  const span = document.createElement("span");
+  span.className = cls;
+  span.textContent = msg + "\n";
+  out.appendChild(span);
+}
+
+async function fetchWithFallback(url, opts = {}) {
+  for (let i = 0; i < PROXIES.length; i++) {
+    const proxyUrl = PROXIES[i](url);
+    try {
+      log(`  [proxy ${i+1}] ${proxyUrl.slice(0, 80)}...`);
+      const r = await fetch(proxyUrl, { ...opts, signal: AbortSignal.timeout(10000) });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      log(`  [proxy ${i+1}] ✅ OK`);
+      return r;
+    } catch (e) {
+      log(`  [proxy ${i+1}] ❌ failed: ${e.message}`, "err");
+      if (i === PROXIES.length - 1) throw new Error("All proxies failed");
+    }
+  }
+}
+
+async function extract() {
+  out.innerHTML = "";
+  const showId = document.getElementById("show").value.trim();
+  const ep     = document.getElementById("ep").value.trim();
+
+  if (!showId || !ep) { log("Please enter Show ID and Episode.", "err"); return; }
+
+  log(`\n🔍 Show ID: ${showId}  |  Episode: ${ep}\n`, "label");
+
+  try {
+    // ── Step 1: gogoanime page → iframe src
+    const gogoUrl = `https://gogoanime.me.uk/newplayer.php?id=${showId}?ep=${ep}`;
+    log(`[1] Fetching gogo page: ${gogoUrl}`, "label");
+    const gogoRes  = await fetchWithFallback(gogoUrl);
+    const gogoHtml = await gogoRes.text();
+
+    const iframeSrc = gogoHtml.match(/iframe[^>]+src="([^"]+)"/)?.[1];
+    if (!iframeSrc) { log("❌ No iframe found in page.", "err"); return; }
+    const streamPage = iframeSrc.split("?")[0];
+    log(`    → stream page: ${streamPage}\n`);
+
+    // ── Step 2: megaplay stream page → file ID
+    log(`[2] Fetching megaplay page: ${streamPage}`, "label");
+    const streamRes  = await fetchWithFallback(streamPage);
+    const streamHtml = await streamRes.text();
+
+    const fileId =
+      streamHtml.match(/File\s+(\d+)/i)?.[1] ||
+      streamHtml.match(/getSources\?id=(\d+)/)?.[1];
+    if (!fileId) { log("❌ File ID not found.", "err"); return; }
+    log(`    → file ID: ${fileId}\n`);
+
+    // ── Step 3: getSources API → m3u8
+    const base   = new URL(streamPage).origin;
+    const apiUrl = `${base}/stream/getSources?id=${fileId}`;
+    log(`[3] Calling getSources: ${apiUrl}`, "label");
+    const apiRes = await fetchWithFallback(apiUrl);
+    const data   = await apiRes.json();
+
+    // Extract m3u8 URLs
+    const m3u8s = [];
+    const src = data.sources;
+    if (Array.isArray(src))       src.forEach(s => s.file?.includes(".m3u8") && m3u8s.push(s.file));
+    else if (src?.file?.includes(".m3u8")) m3u8s.push(src.file);
+    if (data.file?.includes(".m3u8")) m3u8s.push(data.file);
+
+    log(`\n${"=".repeat(60)}`, "label");
+    if (m3u8s.length) {
+      log(`✅ Found ${m3u8s.length} stream URL(s):\n`, "label");
+      [...new Set(m3u8s)].forEach(u => log(u, "url"));
+    } else {
+      log("⚠️  No m3u8 found. Raw response:", "err");
+      log(JSON.stringify(data, null, 2));
+    }
+    log(`${"=".repeat(60)}\n`, "label");
+
+  } catch (e) {
+    log(`\n❌ Error: ${e.message}`, "err");
+  }
+}
+</script>
+</body>
+</html>
