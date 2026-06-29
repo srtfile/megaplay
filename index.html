@@ -2,124 +2,361 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Stream Extractor</title>
+  <title>GogoAnime Stream Extractor</title>
   <style>
-    body { font-family: monospace; background: #111; color: #eee; padding: 20px; }
-    input { background: #222; color: #eee; border: 1px solid #444; padding: 8px; margin: 4px; border-radius: 4px; }
-    button { background: #e74c3c; color: #fff; border: none; padding: 9px 20px; border-radius: 4px; cursor: pointer; margin: 4px; }
-    button:hover { background: #c0392b; }
-    pre { background: #1a1a1a; border: 1px solid #333; padding: 14px; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
-    .url  { color: #2ecc71; }
-    .label{ color: #f39c12; }
-    .err  { color: #e74c3c; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Courier New', monospace;
+      background: #0d0d0d;
+      color: #ddd;
+      padding: 28px 24px;
+      min-height: 100vh;
+    }
+
+    h2 {
+      font-size: 1.25rem;
+      color: #fff;
+      letter-spacing: 0.04em;
+      margin-bottom: 20px;
+      border-bottom: 1px solid #2a2a2a;
+      padding-bottom: 12px;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+
+    input {
+      background: #1a1a1a;
+      color: #eee;
+      border: 1px solid #333;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus { border-color: #e74c3c; }
+    input#show { width: 140px; }
+    input#ep   { width: 140px; }
+
+    .toggle-group {
+      display: flex;
+      border: 1px solid #333;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .toggle-group label {
+      padding: 8px 14px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      color: #aaa;
+      background: #1a1a1a;
+      user-select: none;
+      transition: background 0.15s, color 0.15s;
+    }
+    .toggle-group input[type="checkbox"] { display: none; }
+    .toggle-group input[type="checkbox"]:checked + label {
+      background: #e74c3c;
+      color: #fff;
+    }
+    .toggle-group label:not(:last-child) { border-right: 1px solid #333; }
+
+    button#extractBtn {
+      background: #e74c3c;
+      color: #fff;
+      border: none;
+      padding: 9px 22px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.9rem;
+      font-weight: bold;
+      letter-spacing: 0.03em;
+      transition: background 0.15s;
+    }
+    button#extractBtn:hover { background: #c0392b; }
+    button#extractBtn:disabled { background: #555; cursor: not-allowed; }
+
+    #out {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 6px;
+      padding: 16px;
+      font-size: 0.82rem;
+      line-height: 1.7;
+      min-height: 80px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .url   { color: #2ecc71; font-weight: bold; }
+    .label { color: #f39c12; }
+    .err   { color: #e74c3c; }
+    .info  { color: #888; }
+    .sub   { color: #3498db; }
+    .dub   { color: #9b59b6; }
+    .head  { color: #f1c40f; font-weight: bold; }
+
+    .copy-btn {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 1px 8px;
+      font-size: 0.72rem;
+      background: #222;
+      border: 1px solid #444;
+      border-radius: 3px;
+      color: #aaa;
+      cursor: pointer;
+      vertical-align: middle;
+      font-family: inherit;
+      transition: background 0.1s;
+    }
+    .copy-btn:hover { background: #333; color: #fff; }
   </style>
 </head>
 <body>
   <h2>🎬 GogoAnime Stream Extractor</h2>
-  <input id="show" placeholder="Show ID (e.g. 108)" value="108" style="width:160px" />
-  <input id="ep"   placeholder="Episode (e.g. 235)" value="235" style="width:160px" />
-  <button onclick="extract()">Extract</button>
-  <pre id="out">Ready. Enter show ID and episode then click Extract.</pre>
+
+  <div class="controls">
+    <input id="show" placeholder="Show ID (e.g. 2)" value="2" />
+    <input id="ep"   placeholder="Episode (e.g. 235)" value="235" />
+
+    <div class="toggle-group">
+      <input type="checkbox" id="chkSub" checked />
+      <label for="chkSub">SUB</label>
+      <input type="checkbox" id="chkDub" checked />
+      <label for="chkDub">DUB</label>
+    </div>
+
+    <button id="extractBtn" onclick="extract()">Extract</button>
+  </div>
+
+  <div id="out">Ready. Enter Show ID and Episode, choose SUB / DUB, then click Extract.</div>
 
 <script>
+// ─── PROXY LIST ───────────────────────────────────────────────────────────────
 const PROXIES = [
   url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
   url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
 ];
 
-const out = document.getElementById("out");
-function log(msg, cls = "") {
+// ─── OUTPUT HELPERS ───────────────────────────────────────────────────────────
+const outEl = document.getElementById("out");
+
+function clearOut() { outEl.innerHTML = ""; }
+
+function appendLine(text = "", cls = "") {
   const span = document.createElement("span");
-  span.className = cls;
-  span.textContent = msg + "\n";
-  out.appendChild(span);
+  if (cls) span.className = cls;
+  span.textContent = text + "\n";
+  outEl.appendChild(span);
 }
 
+function appendURL(url) {
+  const wrapper = document.createElement("span");
+
+  const link = document.createElement("span");
+  link.className = "url";
+  link.textContent = url;
+
+  const btn = document.createElement("button");
+  btn.className = "copy-btn";
+  btn.textContent = "copy";
+  btn.onclick = () => {
+    navigator.clipboard.writeText(url).then(() => {
+      btn.textContent = "✓";
+      setTimeout(() => btn.textContent = "copy", 1500);
+    });
+  };
+
+  wrapper.appendChild(link);
+  wrapper.appendChild(btn);
+  wrapper.appendChild(document.createTextNode("\n"));
+  outEl.appendChild(wrapper);
+}
+
+// ─── NETWORK ─────────────────────────────────────────────────────────────────
 async function fetchWithFallback(url, headers = {}) {
   for (let i = 0; i < PROXIES.length; i++) {
     const proxyUrl = PROXIES[i](url);
     try {
-      log(`  [proxy ${i+1}] trying...`);
+      appendLine(`    [proxy ${i + 1}] trying…`, "info");
       const r = await fetch(proxyUrl, {
         headers,
-        signal: AbortSignal.timeout(12000)
+        signal: AbortSignal.timeout(14000),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      log(`  [proxy ${i+1}] ✅ OK`);
+      appendLine(`    [proxy ${i + 1}] ✅ OK`, "info");
       return r;
     } catch (e) {
-      log(`  [proxy ${i+1}] ❌ ${e.message}`, "err");
+      appendLine(`    [proxy ${i + 1}] ❌ ${e.message}`, "err");
       if (i === PROXIES.length - 1) throw new Error("All proxies failed");
     }
   }
 }
 
-async function extract() {
-  out.innerHTML = "";
-  const showId = document.getElementById("show").value.trim();
-  const ep     = document.getElementById("ep").value.trim();
-  if (!showId || !ep) { log("Please enter Show ID and Episode.", "err"); return; }
+// ─── CORE: fetch one variant (sub or dub) ────────────────────────────────────
+//
+// URL pattern discovered from: https://megaplay.buzz/stream/s-{showId}/{ep}/{type}
+//   Step 1 – Fetch the megaplay page for the given type (sub|dub)
+//   Step 2 – Parse file ID from the page HTML
+//   Step 3 – Call getSources API with required headers
+//   Step 4 – Extract all m3u8 URLs from the JSON response
+//
+async function extractVariant(showId, ep, type /* "sub" | "dub" */) {
+  const typeLabel = type.toUpperCase();
+  const typeClass = type === "sub" ? "sub" : "dub";
 
-  log(`\n🔍 Show ID: ${showId}  |  Episode: ${ep}\n`, "label");
+  appendLine(`\n── ${typeLabel} ──────────────────────────────────────────────`, "head");
 
+  // ── Step 1: Build megaplay URL & fetch page ──────────────────────────────
+  // Pattern: https://megaplay.buzz/stream/s-{showId}/{ep}/{type}
+  const streamPage = `https://megaplay.buzz/stream/s-${showId}/${ep}/${type}`;
+  appendLine(`[1] Fetching ${typeLabel} page…`, "label");
+  appendLine(`    → ${streamPage}`, typeClass);
+
+  let streamHtml;
   try {
-    // Step 1: gogo page → iframe src
-    const gogoUrl = `https://gogoanime.me.uk/newplayer.php?id=${showId}?ep=${ep}`;
-    log(`[1] Fetching gogo page...`, "label");
-    const gogoHtml = await (await fetchWithFallback(gogoUrl)).text();
+    const r = await fetchWithFallback(streamPage, {
+      "Referer": "https://gogoanime.me.uk/",
+    });
+    streamHtml = await r.text();
+  } catch (e) {
+    appendLine(`❌ Failed to load ${typeLabel} page: ${e.message}`, "err");
+    return [];
+  }
 
-    const iframeSrc = gogoHtml.match(/iframe[^>]+src="([^"]+)"/)?.[1];
-    if (!iframeSrc) { log("❌ No iframe found.", "err"); return; }
-    const streamPage = iframeSrc.split("?")[0];
-    log(`    → stream page: ${streamPage}\n`);
+  // ── Step 2: Extract file ID ──────────────────────────────────────────────
+  // Try multiple patterns the page may use
+  const fileId =
+    streamHtml.match(/getSources\?id=(\d+)/)?.[1] ||
+    streamHtml.match(/['"]\s*id\s*['"]\s*:\s*['"]\s*(\d+)\s*['"]/)?.[1] ||
+    streamHtml.match(/File\s+(\d+)/i)?.[1] ||
+    streamHtml.match(/file[_-]?id['":\s]+(\d+)/i)?.[1];
 
-    // Step 2: megaplay page → file ID
-    log(`[2] Fetching megaplay page...`, "label");
-    const streamHtml = await (await fetchWithFallback(streamPage, {
-      "Referer": "https://gogoanime.me.uk/"
-    })).text();
+  if (!fileId) {
+    appendLine(`❌ File ID not found for ${typeLabel}. The page may have changed.`, "err");
 
-    const fileId =
-      streamHtml.match(/File\s+(\d+)/i)?.[1] ||
-      streamHtml.match(/getSources\?id=(\d+)/)?.[1];
-    if (!fileId) { log("❌ File ID not found.", "err"); return; }
-    log(`    → file ID: ${fileId}\n`);
+    // Dump first 600 chars of HTML as a debug hint
+    appendLine(`   [debug] first 600 chars of page:`, "info");
+    appendLine(`   ${streamHtml.slice(0, 600)}`, "info");
+    return [];
+  }
+  appendLine(`    → file ID: ${fileId}\n`, typeClass);
 
-    // Step 3: getSources — needs Referer + X-Requested-With headers
-    const base   = new URL(streamPage).origin;
-    const apiUrl = `${base}/stream/getSources?id=${fileId}`;
-    log(`[3] Calling getSources API...`, "label");
+  // ── Step 3: Call getSources API ──────────────────────────────────────────
+  const base   = new URL(streamPage).origin;              // https://megaplay.buzz
+  const apiUrl = `${base}/stream/getSources?id=${fileId}`;
+  appendLine(`[2] Calling getSources API…`, "label");
+  appendLine(`    → ${apiUrl}`, typeClass);
 
+  let data;
+  try {
     const apiRes = await fetchWithFallback(apiUrl, {
       "X-Requested-With": "XMLHttpRequest",
-      "Referer": streamPage,
-      "Origin": base,
+      "Referer":          streamPage,
+      "Origin":           base,
     });
-    const data = await apiRes.json();
-
-    // Extract m3u8 URLs
-    const m3u8s = [];
-    const src = data.sources;
-    if (Array.isArray(src))            src.forEach(s => s.file?.includes(".m3u8") && m3u8s.push(s.file));
-    else if (src?.file?.includes(".m3u8")) m3u8s.push(src.file);
-    if (data.file?.includes(".m3u8"))  m3u8s.push(data.file);
-    const unique = [...new Set(m3u8s)];
-
-    log(`\n${"=".repeat(60)}`, "label");
-    if (unique.length) {
-      log(`✅ Found ${unique.length} stream URL(s):\n`, "label");
-      unique.forEach(u => log(u, "url"));
-    } else {
-      log("⚠️  No m3u8 in response. Raw JSON:", "err");
-      log(JSON.stringify(data, null, 2));
-    }
-    log(`${"=".repeat(60)}\n`, "label");
-
+    data = await apiRes.json();
   } catch (e) {
-    log(`\n❌ Error: ${e.message}`, "err");
-    log("\n💡 Tip: The getSources API may require a direct connection.", "label");
-    log("   Try running the Python script locally instead.", "label");
+    appendLine(`❌ getSources failed for ${typeLabel}: ${e.message}`, "err");
+    return [];
   }
+
+  // ── Step 4: Collect m3u8 URLs ────────────────────────────────────────────
+  const m3u8s = [];
+  const src = data.sources;
+
+  if (Array.isArray(src)) {
+    src.forEach(s => {
+      if (s.file?.includes(".m3u8")) m3u8s.push(s.file);
+    });
+  } else if (src?.file?.includes(".m3u8")) {
+    m3u8s.push(src.file);
+  }
+  if (data.file?.includes(".m3u8")) m3u8s.push(data.file);
+
+  // Also grab backup/mirror sources if present
+  const backup = data.sources_bk || data.sourcesBackup || [];
+  if (Array.isArray(backup)) {
+    backup.forEach(s => {
+      if (s.file?.includes(".m3u8")) m3u8s.push(s.file);
+    });
+  }
+
+  const unique = [...new Set(m3u8s)];
+  return { type: typeLabel, urls: unique, raw: data };
+}
+
+// ─── MAIN ENTRY ──────────────────────────────────────────────────────────────
+async function extract() {
+  clearOut();
+
+  const showId  = document.getElementById("show").value.trim();
+  const ep      = document.getElementById("ep").value.trim();
+  const wantSub = document.getElementById("chkSub").checked;
+  const wantDub = document.getElementById("chkDub").checked;
+
+  if (!showId || !ep) {
+    appendLine("Please enter Show ID and Episode.", "err");
+    return;
+  }
+  if (!wantSub && !wantDub) {
+    appendLine("Select at least one of SUB or DUB.", "err");
+    return;
+  }
+
+  document.getElementById("extractBtn").disabled = true;
+  appendLine(`🔍 Show ID: ${showId}  |  Episode: ${ep}`, "label");
+
+  const variants = [];
+  if (wantSub) variants.push("sub");
+  if (wantDub) variants.push("dub");
+
+  const results = [];
+  for (const v of variants) {
+    const res = await extractVariant(showId, ep, v);
+    results.push(res);
+  }
+
+  // ── Summary ────────────────────────────────────────────────────────────────
+  appendLine(`\n${"═".repeat(62)}`, "head");
+  appendLine("  RESULTS", "head");
+  appendLine(`${"═".repeat(62)}`, "head");
+
+  let total = 0;
+  for (const res of results) {
+    if (!res) continue;
+    const cls = res.type === "SUB" ? "sub" : "dub";
+
+    if (res.urls.length === 0) {
+      appendLine(`\n[${res.type}]  ⚠️  No m3u8 URLs found. Raw JSON:`, "err");
+      appendLine(JSON.stringify(res.raw, null, 2), "info");
+    } else {
+      appendLine(`\n[${res.type}]  ✅  ${res.urls.length} stream URL(s):`, cls);
+      res.urls.forEach(u => appendURL(u));
+      total += res.urls.length;
+    }
+  }
+
+  if (total > 0) {
+    appendLine(`\n✅ Total: ${total} URL(s) extracted.`, "label");
+  } else {
+    appendLine(`\n⚠️  No URLs found.`, "err");
+    appendLine(`💡 Tip: The getSources API may require a direct (non-proxied) connection.`, "label");
+    appendLine(`   Run a local Python script with requests if proxies keep failing.`, "info");
+  }
+
+  appendLine(`${"═".repeat(62)}\n`, "head");
+  document.getElementById("extractBtn").disabled = false;
 }
 </script>
 </body>
